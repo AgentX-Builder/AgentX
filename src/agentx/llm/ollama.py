@@ -2,7 +2,7 @@ import json
 import requests
 from typing import List, Optional, Dict, Any, Generator
 
-from agentx.llm.base import BaseLLM, Message, Role, ToolSpec, LLMResponse, Usage
+from agentx.llm.base import BaseLLM, Message, Role, ToolSpec, LLMResponse, Usage, ReasoningDelta
 
 
 class OllamaLLM(BaseLLM):
@@ -62,11 +62,14 @@ class OllamaLLM(BaseLLM):
             response = requests.post(url, json=payload, timeout=120)
             response.raise_for_status()
             data = response.json()
-            content = data.get("message", {}).get("content", "")
-            tool_calls = data.get("message", {}).get("tool_calls")
+            message = data.get("message", {})
+            content = message.get("content", "")
+            reasoning_content = message.get("reasoning_content")
+            tool_calls = message.get("tool_calls")
             if tool_calls:
                 tool_calls = self._normalize_tool_calls(tool_calls)
-            return LLMResponse(content=content, tool_calls=tool_calls)
+            return LLMResponse(content=content, tool_calls=tool_calls,
+                               reasoning_content=reasoning_content)
         except requests.exceptions.ConnectionError:
             return LLMResponse(
                 content="[Error] Failed to connect to Ollama. Please ensure 'ollama serve' is running.")
@@ -80,7 +83,9 @@ class OllamaLLM(BaseLLM):
 
         try:
             with requests.post(url, json=payload, stream=True, timeout=120) as resp:
+                resp.raise_for_status()
                 buffer = ""
+                reasoning_buffer = ""
                 got_final = False
                 for line in resp.iter_lines():
                     if not line:
@@ -92,6 +97,10 @@ class OllamaLLM(BaseLLM):
                     if "message" not in data:
                         continue
                     msg = data["message"]
+                    if msg.get("reasoning_content"):
+                        rc = msg["reasoning_content"]
+                        reasoning_buffer += rc
+                        yield ("", False, ReasoningDelta(rc))
                     if msg.get("content"):
                         buffer += msg["content"]
                         yield (msg["content"], False, None)
@@ -99,11 +108,13 @@ class OllamaLLM(BaseLLM):
                         fake_resp = LLMResponse(
                             content=buffer,
                             tool_calls=self._normalize_tool_calls(msg["tool_calls"]),
+                            reasoning_content=reasoning_buffer or None,
                         )
                         yield ("", True, fake_resp)
                         got_final = True
                 if not got_final:
-                    yield ("", True, LLMResponse(content=buffer))
+                    yield ("", True, LLMResponse(content=buffer,
+                                                 reasoning_content=reasoning_buffer or None))
         except Exception as e:
             # 错误信息放进 response.content, 不再吞掉 -> 用户能看到真实错误而非空回复
             yield ("", True, LLMResponse(content=f"[Error] {e}"))

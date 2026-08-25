@@ -48,7 +48,7 @@ class Config:
 
     @property
     def llm_model(self) -> str:
-        return self._env("AGENTX_LLM_MODEL") or self._get("llm", "model", default="llama3")
+        return self._env("AGENTX_LLM_MODEL") or self._get("llm", "model", default="phi4-mini")
 
     @property
     def llm_base_url(self) -> str:
@@ -57,6 +57,29 @@ class Config:
     @property
     def llm_api_key(self) -> str | None:
         return self._env("AGENTX_LLM_API_KEY") or self._get("llm", "api_key", default=None)
+
+    # --- 人设 (Persona) 配置 ---
+    @property
+    def persona(self) -> str:
+        """自定义系统人设。为空时使用默认 system prompt。"""
+        return self._get("agent", "persona", default="") or ""
+
+    # --- 工具确认级别 ---
+    @property
+    def confirm_level(self) -> str:
+        """工具确认级别: auto(危险命令才确认) / strict(所有 shell 都确认) / off(全自动)。"""
+        level = self._get("tools", "confirm_level", default="auto") or "auto"
+        return level if level in ("auto", "strict", "off") else "auto"
+
+    # --- 上下文压缩 ---
+    @property
+    def context_max_tokens(self) -> int:
+        """上下文 token 上限, 超过后自动压缩旧消息。默认 100K。"""
+        val = self._get("context", "max_tokens", default=100000)
+        try:
+            return int(val)
+        except (TypeError, ValueError):
+            return 100000
 
     # --- 界面 UI 配置 ---
     @property

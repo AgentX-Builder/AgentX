@@ -18,6 +18,7 @@ class Message:
     content: Optional[str] = None
     tool_calls: Optional[List[Dict[str, Any]]] = None
     tool_call_id: Optional[str] = None
+    reasoning_content: Optional[str] = None
 
 
 @dataclass
@@ -40,6 +41,21 @@ class LLMResponse:
     tool_calls: Optional[List[Dict[str, Any]]] = None
     usage: Optional[Usage] = None
     model: str = ""
+    reasoning_content: Optional[str] = None
+
+
+@dataclass
+class ReasoningDelta:
+    """思维链流式增量标记。
+
+    在 chat_stream 的 yield (delta, is_final, response) 协议中, 当模型流式
+    输出思维链(reasoning_content)时, 用 delta="" / is_final=False 并在
+    response 位置传入本标记, 让 UI 层能实时展示思考过程, 而无需改协议。
+
+    只关心最终答案的消费方(agent/planner/summarize)会自然跳过它。
+    """
+
+    text: str = ""
 
 
 class BaseLLM:

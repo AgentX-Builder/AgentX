@@ -18,6 +18,7 @@ class Agent:
         base_url: str,
         api_key: str | None,
         tool_registry: ToolRegistry | None = None,
+        persona: str | None = None,
     ):
         self.provider = provider
         self.model = model
@@ -25,14 +26,18 @@ class Agent:
         self.api_key = api_key
         self.tool_registry = tool_registry or ToolRegistry()
         self._llm = None
-        self.system_prompt = (
-            "你是命令行工具 agentx 的执行引擎。\n"
-            "规则:\n"
-            "1. 禁止问候、禁止自我介绍、禁止解释你在做什么。\n"
-            "2. 用户给指令 → 要么直接回答, 要么调用工具。\n"
-            "3. 需要信息时调用工具, 拿到结果后只输出结论。\n"
-            "4. 输出必须是纯内容, 不要任何开头语和结尾语。"
-        )
+        self.persona = (persona or "").strip()
+        if self.persona:
+            self.system_prompt = self.persona
+        else:
+            self.system_prompt = (
+                "你是命令行工具 agentx 的执行引擎。\n"
+                "规则:\n"
+                "1. 禁止问候、禁止自我介绍、禁止解释你在做什么。\n"
+                "2. 用户给指令 → 要么直接回答, 要么调用工具。\n"
+                "3. 需要信息时调用工具, 拿到结果后只输出结论。\n"
+                "4. 输出必须是纯内容, 不要任何开头语和结尾语。"
+            )
         self.max_tool_rounds = 10
 
     @property
@@ -72,6 +77,7 @@ class Agent:
             messages.append(Message(
                 role=Role.ASSISTANT, content=None,
                 tool_calls=final_response.tool_calls,
+                reasoning_content=getattr(final_response, "reasoning_content", None),
             ))
 
             # 执行本轮所有工具
@@ -92,7 +98,35 @@ class Agent:
                     tool_call_id=tc["id"],
                 ))
 
-        return (final_response.content if final_response else "") or "(no response)"
+        content = (final_response.content if final_response else "") or ""
+        if not content.strip():
+            rc = getattr(final_response, "reasoning_content", None) if final_response else None
+            if rc and rc.strip():
+                return f"[思维过程]\n{rc}"
+            # 空回复自动重试 (最多 3 次, 间隔递增)
+            for attempt in range(1, 4):
+                time.sleep(1.0 + attempt * 0.5)
+                # 截断历史并保证边界闭合: 重试窗口不得以 tool 消息开头
+                window = messages[-5:]
+                start = 0
+                while start < len(window) and window[start].role == Role.TOOL:
+                    start += 1
+                retry_messages = [Message(role=Role.SYSTEM, content=self.system_prompt)] + window[start:]
+                retry_messages.append(Message(
+                    role=Role.USER,
+                    content="请基于以上对话内容直接输出最终结论(中文), 不要调用任何工具, 不要复述过程。",
+                ))
+                try:
+                    for delta, is_final, response in self.llm.chat_stream(retry_messages, tools=[]):
+                        if is_final:
+                            content = response.content or ""
+                            break
+                        content += delta
+                except Exception:
+                    content = ""
+                if content.strip():
+                    return content
+        return content or "(no response)"
 
     # 2.0: 规划 -> 逐项执行 -> 汇总
     def plan_and_run(self, task: str, on_subtask=None) -> str:

@@ -38,7 +38,7 @@ from agentx.cli.extras import (
 )
 from agentx.config import Config
 from agentx.agent import Agent
-from agentx.llm.base import Message, Role, ToolSpec
+from agentx.llm.base import Message, Role, ToolSpec, ReasoningDelta
 from agentx.tools.base import ToolRegistry, ToolError, tool, truncate_result
 from agentx.tools.dynamic import build_register_tool
 from agentx.session.session import Session
@@ -67,6 +67,7 @@ def chat(
     llm_provider = cfg.llm_provider
     llm_base_url = cfg.llm_base_url
     llm_api_key = cfg.llm_api_key
+    persona = cfg.persona
 
     if resume:
         session = _load_session(cfg, resume)
@@ -79,7 +80,10 @@ def chat(
 
     tool_registry = ToolRegistry()
     _register_builtin_tools(tool_registry)
-    tool_registry.confirm_hook = _confirm_dangerous
+    confirm_level = cfg.confirm_level
+    tool_registry.confirm_hook = (
+        lambda name, args, _level=confirm_level: _confirm_dangerous(name, args, _level)
+    )
 
     agent = Agent(
         provider=llm_provider,
@@ -87,9 +91,10 @@ def chat(
         base_url=llm_base_url,
         api_key=llm_api_key,
         tool_registry=tool_registry,
+        persona=persona or None,
     )
 
-    _show_welcome(llm_model, llm_provider, session)
+    _show_welcome(llm_model, llm_provider, session, cfg)
 
     work_history = WorkHistory(session.id) if session else None
     memory_store = MemoryStore()
@@ -127,6 +132,57 @@ def chat(
 
             if cmd in ("/model",):
                 console.print(f"[dim]当前模型: {llm_model} ({llm_provider})[/dim]")
+                continue
+
+            if cmd in ("/config",):
+                if _config_setup(cfg, in_chat=True):
+                    llm_provider = cfg.llm_provider
+                    llm_model = cfg.llm_model
+                    llm_base_url = cfg.llm_base_url
+                    llm_api_key = cfg.llm_api_key
+                    agent.close()
+                    agent = Agent(
+                        provider=llm_provider,
+                        model=llm_model,
+                        base_url=llm_base_url,
+                        api_key=llm_api_key,
+                        tool_registry=tool_registry,
+                        persona=persona or None,
+                    )
+                    console.print(f"\n[green]✔ 配置已生效, 当前模型: {llm_model} ({llm_provider})[/green]")
+                continue
+
+            if cmd == "/prompt" or cmd.startswith("/prompt "):
+                if cmd.strip() == "/prompt clear":
+                    _config_set(cfg, "agent.persona", "")
+                    persona = ""
+                    changed = True
+                else:
+                    new_persona = _prompt_setup(cfg)
+                    if new_persona is not None:
+                        persona = new_persona
+                        changed = True
+                    else:
+                        changed = False
+                if changed:
+                    agent.close()
+                    agent = Agent(
+                        provider=llm_provider,
+                        model=llm_model,
+                        base_url=llm_base_url,
+                        api_key=llm_api_key,
+                        tool_registry=tool_registry,
+                        persona=persona or None,
+                    )
+                    if session:
+                        session.system_prompt = agent.system_prompt
+                        if session._messages:
+                            session._messages[0]["content"] = agent.system_prompt
+                    preview = persona[:40] + "..." if len(persona) > 40 else persona
+                    console.print(
+                        f"[green]✔ 人设已生效[/green]"
+                        + (f"[dim] ({preview})[/dim]" if persona else " [dim](恢复默认)[/dim]")
+                    )
                 continue
 
             if cmd in ("/sessions", "/list"):
@@ -177,7 +233,7 @@ def chat(
                 continue
 
             if cmd.startswith("/"):
-                console.print("[red]未知命令。可用: /exit /clear /tools /model /sessions /work /memory /gacha /collection[/red]")
+                console.print("[red]未知命令。可用: /exit /clear /tools /model /config /prompt /sessions /work /memory /gacha /collection[/red]")
                 continue
 
             # 关键修复: _run_turn 返回会话, 保证历史跨轮累积
@@ -210,6 +266,7 @@ def run(
         base_url=cfg.llm_base_url,
         api_key=cfg.llm_api_key,
         tool_registry=tool_registry,
+        persona=cfg.persona or None,
     )
 
     console.print(f"[dim]Task: {task}[/dim]\n")
@@ -233,7 +290,7 @@ def run(
 
 @app.command("config")
 def config_cmd(
-    action: str = typer.Argument("list", help="list / set / get"),
+    action: str = typer.Argument("list", help="list / setup / set / get"),
     key: str | None = typer.Option(None, "--key", "-k"),
     value: str | None = typer.Option(None, "--value", "-v"),
 ):
@@ -244,8 +301,16 @@ def config_cmd(
         console.print(f"[bold]Provider:[/bold] {cfg.llm_provider}")
         console.print(f"[bold]Model:[/bold] {cfg.llm_model}")
         console.print(f"[bold]Base URL:[/bold] {cfg.llm_base_url}")
+        console.print(f"[bold]API Key:[/bold] {mask_api_key(cfg.llm_api_key)}")
+        console.print(f"[bold]Persona:[/bold] {'on' if cfg.persona else 'off'}")
+        console.print(f"[bold]Confirm level:[/bold] {cfg.confirm_level}")
+        console.print(f"[bold]Context max tokens:[/bold] {cfg.context_max_tokens}")
         console.print(f"[bold]Pet:[/bold] {'on' if cfg.ui_pet else 'off'}")
         console.print(f"[bold]Config file:[/bold] {cfg._path}")
+        return
+
+    if action == "setup":
+        _config_setup(cfg)
         return
 
     if action == "set" and key and value:
@@ -258,7 +323,7 @@ def config_cmd(
         console.print(f"{key} = {val}")
         return
 
-    console.print("[red]Usage: agentx config list | set --key K --value V | get --key K[/red]")
+    console.print("[red]Usage: agentx config list | setup | set --key K --value V | get --key K[/red]")
 
 
 @app.command("tools")
@@ -452,10 +517,92 @@ class _FileSystem:
         return "\n".join(results) if results else f"未找到: {name_pattern}"
 
 
-def _confirm_dangerous(name: str, arguments: dict) -> bool:
+# 权限分级: 只对会修改系统/文件/数据的操作要求确认, 只读普通命令自动执行
+_DANGEROUS_CMDS = {
+    # 删除/移动/复制/清空
+    "rm", "rmdir", "mv", "cp", "dd", "truncate", "shred", "unlink",
+    # 文件系统/磁盘/分区
+    "mkfs", "mkfs.ext2", "mkfs.ext3", "mkfs.ext4", "mkfs.xfs", "fdisk",
+    "parted", "gdisk", "mount", "umount", "lvm", "pvcreate", "vgcreate",
+    # 系统电源/内核/引导
+    "shutdown", "reboot", "poweroff", "halt", "init", "telinit",
+    "modprobe", "insmod", "rmmod", "sysctl", "update-grub", "grub-install",
+    # 进程/权限/用户
+    "kill", "killall", "pkill", "chmod", "chown", "chgrp",
+    "useradd", "userdel", "usermod", "groupadd", "groupdel", "passwd",
+    "visudo", "chroot",
+    # 防火墙/网络管理
+    "iptables", "ip6tables", "nft", "nftables", "ufw", "firewall-cmd",
+    # 包管理器(修改系统)
+    "apt", "apt-get", "yum", "dnf", "zypper", "pacman", "dpkg", "rpm",
+    # git 破坏性操作
+    "git-reset", "git-clean",
+    # 提权
+    "sudo", "su",
+}
+
+# 命中即确认的 git 子命令
+_DANGEROUS_GIT = {"reset", "clean", "push", "rebase", "merge", "cherry-pick",
+                  "branch", "tag", "checkout", "restore", "stash"}
+
+
+def _is_dangerous_command(cmd: str, level: str = "auto") -> bool:
+    """权限分级: 判断 shell 命令是否需要用户确认。
+
+    level=strict: 所有 shell 命令都确认。
+    level=off: 永不确认。
+    level=auto: 命中危险黑名单或含文件重定向写入时才确认。
+    """
+    if level == "off":
+        return False
+    if level == "strict":
+        return True
+    cmd = cmd.strip()
+    if not cmd:
+        return False
+
+    # 输出重定向到文件(排除 /dev/null 与 2>&1) = 写操作
+    for mtch in re.finditer(r"(?:^|[\s;&|])(?:[12]?[>]+)\s*(\S+)", cmd):
+        target = mtch.group(1).strip()
+        if target.startswith("/dev/null"):
+            continue
+        if target.startswith("&"):
+            continue
+        return True
+
+    # 取命令头(第一个词), 支持 sudo/doas 前缀递归判断
+    head = re.split(r"[\s;&|]+", cmd, maxsplit=1)[0].lower()
+    if head in ("sudo", "doas"):
+        rest = re.split(r"[\s;&|]+", cmd, maxsplit=1)[1] if " " in cmd else ""
+        return _is_dangerous_command(rest, level)
+    if head in _DANGEROUS_CMDS:
+        return True
+    # git 子命令: git reset/clean/push 等需要确认
+    if head == "git":
+        parts = re.split(r"[\s;&|]+", cmd)
+        if len(parts) > 1 and parts[1].replace("-", "").lower() in _DANGEROUS_GIT:
+            return True
+    return False
+
+
+def _render_thinking(text: str, pet) -> None:
+    """渲染思维链实时滚动(灰字斜体), 让用户看到模型正在思考。"""
+    console.clear()
+    console.print(pet.render())
+    console.print(Panel(
+        Text(f"思考中...\n\n{text}", style="dim italic"),
+        title="[dim]思维链[/dim]",
+        border_style="dim",
+        title_align="left",
+    ))
+
+
+def _confirm_dangerous(name: str, arguments: dict, level: str = "auto") -> bool:
     """危险操作确认钩子。返回 True=执行, False=取消。"""
     if name == "run_shell_cmd":
         cmd = arguments.get("command", "")
+        if not _is_dangerous_command(cmd, level):
+            return True  # 普通只读命令自动执行, 不打扰
         console.print(Panel(
             f"[bold yellow]将执行 shell 命令:[/bold yellow]\n[red]{cmd}[/red]",
             title="⚠ 危险操作确认",
@@ -474,18 +621,20 @@ def _confirm_dangerous(name: str, arguments: dict) -> bool:
         return False
 
 
-def _show_welcome(model: str, provider: str, session):
+def _show_welcome(model: str, provider: str, session, cfg=None):
     pet.set_state("idle")
     console.clear()
+    api_key = mask_api_key(cfg.llm_api_key) if cfg else "(未设置)"
     console.print(Panel.fit(
         "[bold cyan]🐱 AgentX[/bold cyan]\n"
         "[dim]Terminal AI Agent — local, Ollama-first[/dim]\n\n"
         f"[bold]Model:[/bold] {model}  [bold]Provider:[/bold] {provider}\n"
+        f"[bold]API Key:[/bold] {api_key}\n"
         f"[bold]Session:[/bold] {session.id if session else 'new'}",
         border_style="cyan",
         box=box.DOUBLE,
     ))
-    console.print("[dim]Commands: /exit /clear /tools /model /sessions /work /memory /gacha /collection | 直接输入开始对话[/dim]\n")
+    console.print("[dim]Commands: /exit /clear /tools /model /config /prompt /sessions /work /memory /gacha /collection | 直接输入开始对话[/dim]\n")
 
 
 def _to_provider_messages(session: Session, max_history: int = 50) -> list[Message]:
@@ -494,7 +643,8 @@ def _to_provider_messages(session: Session, max_history: int = 50) -> list[Messa
         Message(role=Role(m["role"]),
                 content=m.get("content"),
                 tool_calls=m.get("tool_calls"),
-                tool_call_id=m.get("tool_call_id"))
+                tool_call_id=m.get("tool_call_id"),
+                reasoning_content=m.get("reasoning_content"))
         for m in session.get_llm_messages(max_history)
     ]
 
@@ -511,6 +661,22 @@ def _run_turn(console, pet, agent, user_input, session, cfg, llm_model,
 
     # 关键修复 1: 用户输入必须进会话, 模型才能收到问题
     session.add_user(user_input)
+
+    # 上下文自动压缩: 估算 token 超阈值时把旧消息摘要成一条,
+    # 防止长对话上下文膨胀导致回答退化/断断续续
+    max_tokens = int(getattr(cfg, "context_max_tokens", 100000) or 100000)
+    try:
+        if session.estimate_total_tokens() > max_tokens:
+            console.print(f"[dim]上下文超限(>{max_tokens} tokens), 自动压缩中...[/dim]")
+            before = session.estimate_total_tokens()
+            if session.compress_old(agent.llm, max_tokens):
+                console.print(
+                    f"[dim]✔ 已压缩 {before} → {session.estimate_total_tokens()} tokens[/dim]"
+                )
+            else:
+                console.print("[dim]压缩未执行, 保持原上下文[/dim]")
+    except Exception as e:
+        console.print(f"[dim]上下文压缩跳过: {e}[/dim]")
 
     tool_specs = agent.tool_registry.list_specs()
     max_history = getattr(cfg, "session_max_history", 50) or 50
@@ -531,8 +697,17 @@ def _run_turn(console, pet, agent, user_input, session, cfg, llm_model,
         final_response = None
         stream_buffer = ""
         rendered_len = 0
+        thinking_buffer = ""
+        thinking_rendered = 0
         try:
             for delta, is_final, response in agent.llm.chat_stream(messages, tools=tool_specs):
+                # 思维链流式增量: 实时展示思考过程(灰字斜体), 不影响正文渲染
+                if isinstance(response, ReasoningDelta):
+                    thinking_buffer += response.text
+                    if len(thinking_buffer) - thinking_rendered >= 40:
+                        thinking_rendered = len(thinking_buffer)
+                        _render_thinking(thinking_buffer, pet)
+                    continue
                 if is_final:
                     final_response = response
                     break
@@ -558,7 +733,8 @@ def _run_turn(console, pet, agent, user_input, session, cfg, llm_model,
             break  # 没有工具调用 -> 最终答案
 
         # 关键修复 2: 保存 assistant 的调用声明 (三段式)
-        session.add_assistant_tool_calls(final_response.tool_calls)
+        session.add_assistant_tool_calls(final_response.tool_calls,
+                                         reasoning_content=getattr(final_response, "reasoning_content", None))
 
         # 执行本轮所有工具
         pet.set_state("working")
@@ -598,13 +774,24 @@ def _run_turn(console, pet, agent, user_input, session, cfg, llm_model,
     else:
         full_text = stream_buffer
 
-    # 关键修复 4: 空回复自动压缩重试
-    if not full_text.strip() and tool_calls_made:
-        console.print("[dim]检测到空回复, 压缩上下文重试...[/dim]")
+    # 思考模式兜底: 若最终 content 为空但模型只输出了思维链, 展示思维链避免空屏
+    if not full_text.strip():
+        rc = getattr(final_response, "reasoning_content", None) if final_response else None
+        if rc and rc.strip():
+            full_text = f"[思维过程]\n{rc}"
+
+    # 关键修复 4: 空回复自动重试 (最多 3 次, 间隔递增)
+    # DeepSeek V4 思考模式 / 高负载时段偶发空响应, 重试可显著降低用户可见空回复
+    retries = 3
+    attempt = 0
+    while not full_text.strip() and attempt < retries:
+        attempt += 1
+        console.print(f"[dim]检测到空回复, 自动重试 ({attempt}/{retries})...[/dim]")
+        time.sleep(1.0 + attempt * 0.5)
         retry_messages = _to_provider_messages(session, max_history=10)
         retry_messages.append(Message(
             role=Role("user"),
-            content="请基于以上工具执行结果直接输出最终结论(中文), 不要调用任何工具, 不要复述过程。",
+            content="请基于以上对话内容直接输出最终结论(中文), 不要调用任何工具, 不要复述过程。",
         ))
         retry_text = ""
         try:
@@ -639,7 +826,8 @@ def _run_turn(console, pet, agent, user_input, session, cfg, llm_model,
     ))
 
     if full_text.strip():
-        session.add_assistant(full_text)
+        session.add_assistant(full_text,
+                              reasoning_content=getattr(final_response, "reasoning_content", None))
     session.turn_count += 1
 
     tokens = final_response.usage.total_tokens if final_response and final_response.usage else 0
@@ -768,6 +956,106 @@ def _show_tools(registry):
         params = ", ".join(spec.input_schema.get("properties", {}).keys())
         table.add_row(spec.name, spec.description, params or "—")
     console.print(table)
+
+
+def mask_api_key(key):
+    """API Key 掩码显示: 保留前4位与后2位, 中间打码。空值返回提示。"""
+    if not key:
+        return "(未设置)"
+    if len(key) <= 8:
+        return "*" * len(key)
+    return f"{key[:4]}{'*' * (len(key) - 6)}{key[-2:]}"
+
+
+def _prompt_setup(cfg) -> str | None:
+    """交互式编辑系统人设: 多行输入, 空行结束。返回新 persona, 取消/不变返回 None。"""
+    current = cfg.persona or "(未设置, 使用默认人设)"
+    console.print(Panel(
+        "[bold cyan]🧠 自定义系统人设[/bold cyan]\n"
+        f"[dim]当前人设:[/dim]\n{current}",
+        border_style="cyan",
+    ))
+    console.print(
+        "[dim]输入新的人设内容(支持多行, 空行回车结束), 直接回车保持不变; "
+        "回复 /prompt clear 可清空恢复默认。[/dim]"
+    )
+    lines = []
+    try:
+        while True:
+            line = _read_input("> ")
+            if line == "":
+                break
+            lines.append(line)
+    except (KeyboardInterrupt, EOFError):
+        console.print("\n[yellow]已取消[/yellow]")
+        return None
+    if not lines:
+        console.print("[dim]人设未修改[/dim]")
+        return None
+    persona = "\n".join(lines).strip()
+    _config_set(cfg, "agent.persona", persona)
+    console.print(f"[green]✔ 人设已保存到 {cfg._path}[/green]")
+    return persona
+
+
+def _config_setup(cfg, in_chat: bool = False) -> bool:
+    """交互式配置向导: 引导填入 provider / base_url / model / api_key。
+
+    返回 True=配置已保存, False=取消或失败。in_chat=True 时用于 chat 内的 /config。
+    """
+    console.print(Panel(
+        "[bold cyan]⚙️  AgentX 配置向导[/bold cyan]\n"
+        "[dim]按 Ctrl+C 随时取消, 直接回车使用方括号内的当前值[/dim]",
+        border_style="cyan",
+    ))
+
+    try:
+        provider = _read_input(
+            f"模型服务 provider [dim](ollama / openai)[/dim] [{cfg.llm_provider}]: "
+        ) or cfg.llm_provider
+        provider = provider.strip().lower()
+        if provider not in ("ollama", "openai"):
+            console.print("[red]无效 provider, 仅支持 ollama / openai[/red]")
+            return False
+
+        if provider == "ollama":
+            default_url = cfg.llm_base_url or "http://localhost:11434"
+            base_url = _read_input(f"Ollama 地址 [{default_url}]: ") or default_url
+            default_model = cfg.llm_model or "phi4-mini"
+            model = _read_input(f"模型名 [{default_model}]: ") or default_model
+            api_key = ""
+        else:
+            default_url = cfg.llm_base_url or "https://api.deepseek.com"
+            base_url = _read_input(f"OpenAI 兼容接口地址 [{default_url}]: ") or default_url
+            default_model = cfg.llm_model or "deepseek-v4-flash"
+            model = _read_input(f"模型名 [{default_model}]: ") or default_model
+            prompt = f"API Key [dim](直接回车保持不变)[/dim]: "
+            console.print(prompt, end="")
+            api_key = _read_input("").strip()
+            if not api_key:
+                api_key = cfg.llm_api_key or ""
+            else:
+                console.print(f"[dim]已接收 API Key: {mask_api_key(api_key)}[/dim]")
+    except (KeyboardInterrupt, EOFError):
+        console.print("\n[yellow]配置已取消[/yellow]")
+        return False
+
+    _config_set(cfg, "llm.provider", provider)
+    _config_set(cfg, "llm.base_url", base_url)
+    _config_set(cfg, "llm.model", model)
+    if api_key:
+        _config_set(cfg, "llm.api_key", api_key)
+    else:
+        _config_set(cfg, "llm.api_key", "")
+
+    console.print(f"\n[green]✔ 配置已保存到 {cfg._path}[/green]")
+    console.print(f"[bold]Provider:[/bold] {provider}")
+    console.print(f"[bold]Model:[/bold] {model}")
+    console.print(f"[bold]Base URL:[/bold] {base_url}")
+    console.print(f"[bold]API Key:[/bold] {mask_api_key(api_key)}")
+    if not in_chat:
+        console.print("\n[dim]提示: 直接运行 agentx chat 即可开始对话[/dim]")
+    return True
 
 
 def _config_set(cfg, key, value):
