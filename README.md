@@ -85,24 +85,52 @@ AgentX 的 provider 使用 OpenAI 兼容协议，因此可以对接 Ollama 本�
 
 ## Installation / 安装
 
+### One command (recommended) / 一条命令（推荐）
+
 ```bash
-git clone <your-repo-url>
-cd agentx
+pip install "git+https://github.com/AgentX-Builder/AgentX.git" && agentx chat
+```
+
+That single command installs AgentX **and all its dependencies automatically**, then starts the chat UI. No manual `pip install` of each dependency is needed.
+
+Requirements: **Python 3.10+** and `pip`.
+
+这条命令会自动安装 AgentX 及其全部依赖，安装完成后直接进入对话界面。依赖无需逐个手动安装。
+
+前提条件：**Python 3.10+** 与 `pip`。
+
+手机 Termux 用户如果报错，先执行 `pkg install python` 再跑上面这条命令。
+
+### From source / 从源码安装
+
+```bash
+git clone https://github.com/AgentX-Builder/AgentX.git
+cd AgentX
 pip install -e .
 ```
 
-Or run directly from source without installing:
-
-或直接以源码方式运行（无需安装）：
+### Run from source without installing / 源码直接运行（不安装）
 
 ```bash
-cd agentx
+cd AgentX
 PYTHONPATH=src python3 -m agentx.cli.main --help
 ```
 
-Dependencies: `typer`, `rich`, `httpx`, `requests`, `tomli-w` (Python >= 3.10).
+### Dependencies / 依赖清单
 
-依赖：`typer`、`rich`、`httpx`、`requests`、`tomli-w`（Python >= 3.10）。
+Dependencies are declared in `pyproject.toml` and installed automatically:
+
+依赖已在 `pyproject.toml` 中声明并随安装自动装入：
+
+| Package | Purpose / 用途 |
+|---------|---------------|
+| `typer` | CLI entry point / 命令行入口 |
+| `rich` | Terminal UI & markdown rendering / 终端界面与渲染 |
+| `httpx` | OpenAI-compatible API client / API 客户端 |
+| `requests` | Ollama / download fallback / 请求与下载 |
+| `tomli-w` | Write config files / 写入配置文件 |
+
+Requires **Python >= 3.10**.
 
 ---
 
