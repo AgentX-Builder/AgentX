@@ -585,18 +585,6 @@ def _is_dangerous_command(cmd: str, level: str = "auto") -> bool:
     return False
 
 
-def _render_thinking(text: str, pet) -> None:
-    """渲染思维链实时滚动(灰字斜体), 让用户看到模型正在思考。"""
-    console.clear()
-    console.print(pet.render())
-    console.print(Panel(
-        Text(f"思考中...\n\n{text}", style="dim italic"),
-        title="[dim]思维链[/dim]",
-        border_style="dim",
-        title_align="left",
-    ))
-
-
 def _confirm_dangerous(name: str, arguments: dict, level: str = "auto") -> bool:
     """危险操作确认钩子。返回 True=执行, False=取消。"""
     if name == "run_shell_cmd":
@@ -686,7 +674,6 @@ def _run_turn(console, pet, agent, user_input, session, cfg, llm_model,
     tool_calls_made = []
     final_response = None
     stream_buffer = ""
-    rendered_len = 0
 
     pet.set_state("thinking")
     console.print(pet.render())
@@ -696,29 +683,26 @@ def _run_turn(console, pet, agent, user_input, session, cfg, llm_model,
         # 调用 LLM
         final_response = None
         stream_buffer = ""
-        rendered_len = 0
         thinking_buffer = ""
-        thinking_rendered = 0
         try:
-            for delta, is_final, response in agent.llm.chat_stream(messages, tools=tool_specs):
-                # 思维链流式增量: 实时展示思考过程(灰字斜体), 不影响正文渲染
-                if isinstance(response, ReasoningDelta):
-                    thinking_buffer += response.text
-                    if len(thinking_buffer) - thinking_rendered >= 40:
-                        thinking_rendered = len(thinking_buffer)
-                        _render_thinking(thinking_buffer, pet)
-                    continue
-                if is_final:
-                    final_response = response
-                    break
-                elif delta:
-                    stream_buffer += delta
-                    # 每累积 40 字符才重绘一次, 避免手机终端疯狂闪烁
-                    if len(stream_buffer) - rendered_len >= 40:
-                        rendered_len = len(stream_buffer)
-                        console.clear()
-                        console.print(pet.render())
-                        console.print(Panel(
+            with Live(console=console, refresh_per_second=10, screen=False) as live:
+                for delta, is_final, response in agent.llm.chat_stream(messages, tools=tool_specs):
+                    # 思维链流式增量: rich Live 局部刷新, 不再整屏 clear 重绘, 避免闪烁
+                    if isinstance(response, ReasoningDelta):
+                        thinking_buffer += response.text
+                        live.update(Panel(
+                            Text(f"思考中...\n\n{thinking_buffer}", style="dim italic"),
+                            title="[dim]思维链[/dim]",
+                            border_style="dim",
+                            title_align="left",
+                        ))
+                        continue
+                    if is_final:
+                        final_response = response
+                        break
+                    elif delta:
+                        stream_buffer += delta
+                        live.update(Panel(
                             Markdown(stream_buffer),
                             title="[bold cyan]小智[/bold cyan]",
                             border_style="cyan",
