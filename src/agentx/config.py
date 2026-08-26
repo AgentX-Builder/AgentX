@@ -74,12 +74,12 @@ class Config:
     # --- 上下文压缩 ---
     @property
     def context_max_tokens(self) -> int:
-        """上下文 token 上限, 超过后自动压缩旧消息。默认 100K。"""
-        val = self._get("context", "max_tokens", default=100000)
+        """上下文 token 上限, 超过后自动压缩旧消息。默认 32K(手机端蒸馏模型窗口普遍 32K)。"""
+        val = self._get("context", "max_tokens", default=32000)
         try:
             return int(val)
         except (TypeError, ValueError):
-            return 100000
+            return 32000
 
     # --- 界面 UI 配置 ---
     @property

@@ -97,17 +97,20 @@ class Session:
     # ------------------------------------------------------------------
     # 上下文压缩: 超过 token 阈值时把旧消息摘要成一条, 避免长对话退化
     # ------------------------------------------------------------------
+    @staticmethod
+    def _message_tokens(m: Dict[str, Any]) -> int:
+        """估算单条消息的 token 数(含 content / reasoning_content / tool_calls)。"""
+        total = estimate_tokens(str(m.get("content", "")))
+        total += estimate_tokens(str(m.get("reasoning_content", "")))
+        for tc in m.get("tool_calls") or []:
+            fn = tc.get("function", {})
+            total += estimate_tokens(str(fn.get("name", "")))
+            total += estimate_tokens(str(fn.get("arguments", "")))
+        return total
+
     def estimate_total_tokens(self) -> int:
         """估算当前消息历史总 token 数(含 system)。"""
-        total = 0
-        for m in self._messages:
-            total += estimate_tokens(str(m.get("content", "")))
-            if m.get("tool_calls"):
-                for tc in m["tool_calls"]:
-                    fn = tc.get("function", {})
-                    total += estimate_tokens(str(fn.get("name", "")))
-                    total += estimate_tokens(str(fn.get("arguments", "")))
-        return total
+        return sum(Session._message_tokens(m) for m in self._messages)
 
     @staticmethod
     def _render_message(m: Dict[str, Any]) -> str:
@@ -141,7 +144,7 @@ class Session:
         acc = 0
         keep_start = len(self._messages)
         for i in range(len(self._messages) - 1, 0, -1):  # 跳过 index 0 的 system
-            acc += estimate_tokens(str(self._messages[i].get("content", "")))
+            acc += Session._message_tokens(self._messages[i])
             if acc > budget:
                 break
             keep_start = i
