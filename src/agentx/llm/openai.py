@@ -71,8 +71,8 @@ class OpenAILLM(BaseLLM):
                 msg["tool_calls"] = m.tool_calls
             if m.tool_call_id:
                 msg["tool_call_id"] = m.tool_call_id
-            if m.reasoning_content:
-                msg["reasoning_content"] = m.reasoning_content
+            # 不把 reasoning_content 塞回 API 请求: OpenAI 兼容端点(如 DeepSeek
+            # 官方 API)不接受 assistant 历史消息携带该字段, 会报 400。
             result.append(msg)
         return result
 

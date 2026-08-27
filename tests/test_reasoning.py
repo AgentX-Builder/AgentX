@@ -129,3 +129,18 @@ def test_reasoning_delta_ignored_by_final_only_consumers():
             content += delta
     assert content == "正文"
     assert final.content == "正文"
+
+
+def test_openai_convert_messages_omits_reasoning_content():
+    """OpenAI 兼容端点不接受 assistant 历史消息带 reasoning_content,
+    该字段只用于本地展示, 不得回发给 API。"""
+    from agentx.llm.base import Message, Role
+
+    llm = OpenAILLM(model="deepseek-v4-flash", base_url="https://api.deepseek.com", api_key="k")
+    out = llm._convert_messages([
+        Message(role=Role.SYSTEM, content="sys"),
+        Message(role=Role.USER, content="hi"),
+        Message(role=Role.ASSISTANT, content="答案", reasoning_content="思考过程"),
+    ])
+    assert out[2]["content"] == "答案"
+    assert "reasoning_content" not in out[2]
