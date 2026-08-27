@@ -389,6 +389,14 @@ class GachaSystem:
             return ""
         return CAT_ARTS.get(active["name"], "")
 
+    def activate(self, name: str) -> bool:
+        """把某个已拥有的宠物设为当前皮肤。成功返回 True。"""
+        if name not in self._data["collection"]:
+            return False
+        self._data["active"] = name
+        self._flush()
+        return True
+
 
 # ── 渲染 ────────────────────────────────────────────────────────────
 
@@ -431,23 +439,27 @@ def render_gacha(console, pet: dict, remaining: int) -> None:
     console.print(f"[dim]今日剩余抽卡次数: {remaining}/{DAILY_PULL_LIMIT}[/dim]")
 
 
-def render_collection(console, gacha: GachaSystem) -> None:
+def render_collection(console, gacha: GachaSystem, ask=None) -> str | None:
+    """展示宠物图鉴。ask 提供时支持输入编号回车切换当前皮肤, 返回选中宠物名。"""
     col = gacha.collection()
     if not col:
         console.print("[dim]图鉴还是空的, 输入 /gacha 抽第一只猫猫吧[/dim]")
-        return
+        return None
     order = {"神级": 99, "传说": 5, "史诗": 4, "稀有": 3, "非凡": 2, "普通": 1}
     table = Table(title="📚 宠物图鉴", box=box.ROUNDED)
+    table.add_column("", justify="right")
     table.add_column("宠物", style="bold")
     table.add_column("稀有度")
     table.add_column("数量", justify="right")
     table.add_column("首次获得", style="dim")
+    names = []
     for name, info in sorted(col.items(),
                              key=lambda x: (order.get(x[1].get("rarity", "普通"), 0), x[0])):
         rar = info.get("rarity", "普通")
         style = RARITY_STYLE.get(rar, "cyan")
         god_mark = " ✨" if info.get("god") else ""
-        table.add_row(f"{name}{god_mark}", f"[{style}]{rar}[/{style}]",
+        names.append(name)
+        table.add_row(str(len(names)), f"{name}{god_mark}", f"[{style}]{rar}[/{style}]",
                       str(info.get("count", 0)), str(info.get("first", "—")))
     console.print(table)
     active = gacha.active_pet()
@@ -456,6 +468,16 @@ def render_collection(console, gacha: GachaSystem) -> None:
         glow = " ✨" if active["god"] else ""
         console.print(f"[dim]当前活跃: [bold {a_style}]{active['name']}[/bold {a_style}]"
                       f" ({active['rarity']}){glow}[/dim]")
+    if ask is None:
+        return None
+    console.print("[dim]输入编号回车切换为该宠物皮肤, 直接回车取消[/dim]")
+    try:
+        choice = ask("选择")
+    except (KeyboardInterrupt, EOFError):
+        return None
+    if choice and choice.isdigit() and 1 <= int(choice) <= len(names):
+        return names[int(choice) - 1]
+    return None
 
 
 def render_work_list(console, ops: list, ask) -> None:

@@ -227,11 +227,15 @@ def chat(
                     console.print(f"[red]{err}[/red]")
                     continue
                 render_gacha(console, pet_result, gacha.remaining())
-                _apply_pet_skin(pet, gacha)
+                console.print("[dim]提示: 输入 /collection 可挑选已抽到的宠物皮肤[/dim]")
                 continue
 
             if cmd == "/collection":
-                render_collection(console, gacha)
+                picked = render_collection(console, gacha, _read_input)
+                if picked:
+                    gacha.activate(picked)
+                    _apply_pet_skin(pet, gacha)
+                    console.print(f"[green]✔ 已切换宠物皮肤: {picked}[/green]")
                 continue
 
             if cmd.startswith("/"):

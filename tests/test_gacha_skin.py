@@ -48,3 +48,32 @@ def test_apply_skin_empty_restores_default():
     assert "fake" in str(pet.render().renderable)
     pet.apply_skin("")
     assert "fake" not in str(pet.render().renderable)
+
+
+def test_activate_switches_active_pet(tmp_path):
+    g = GachaSystem(path=tmp_path / "pet.json")
+    g._data["collection"] = {
+        "英短": {"count": 2, "first": "2026-08-27", "rarity": "非凡", "god": False},
+        "老虎": {"count": 1, "first": "2026-08-27", "rarity": "史诗", "god": False},
+    }
+    assert g.activate("老虎") is True
+    assert g.active_pet()["name"] == "老虎"
+    assert g.activate("不存在") is False
+    assert g.active_pet()["name"] == "老虎"
+
+
+def test_render_collection_returns_picked(tmp_path):
+    from rich.console import Console
+    from agentx.cli.extras import render_collection
+
+    g = GachaSystem(path=tmp_path / "pet.json")
+    g._data["collection"] = {
+        "英短": {"count": 2, "first": "2026-08-27", "rarity": "非凡", "god": False},
+        "老虎": {"count": 1, "first": "2026-08-27", "rarity": "史诗", "god": False},
+    }
+    picked = render_collection(Console(), g, ask=lambda _prompt: "2")
+    assert picked == "老虎"
+    picked2 = render_collection(Console(), g, ask=lambda _prompt: "")
+    assert picked2 is None
+    picked3 = render_collection(Console(), g, ask=lambda _prompt: "99")
+    assert picked3 is None
