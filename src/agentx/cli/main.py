@@ -17,7 +17,6 @@ except ImportError:
 
 import typer
 from rich.console import Console
-from rich.live import Live
 from rich.panel import Panel
 from rich.text import Text
 from rich.markdown import Markdown
@@ -680,34 +679,22 @@ def _run_turn(console, pet, agent, user_input, session, cfg, llm_model,
 
     # 多轮工具循环
     for _ in range(agent.max_tool_rounds):
-        # 调用 LLM
+        # 调用 LLM (非流式展示: 静默累积完整输出, 生成完一次性打印结果, 不再逐段滚动)
         final_response = None
         stream_buffer = ""
         thinking_buffer = ""
+        console.print("[dim]思考中...[/dim]")
         try:
-            with Live(console=console, refresh_per_second=10, screen=False) as live:
-                for delta, is_final, response in agent.llm.chat_stream(messages, tools=tool_specs):
-                    # 思维链流式增量: rich Live 局部刷新, 不再整屏 clear 重绘, 避免闪烁
-                    if isinstance(response, ReasoningDelta):
-                        thinking_buffer += response.text
-                        live.update(Panel(
-                            Text(f"思考中...\n\n{thinking_buffer}", style="dim italic"),
-                            title="[dim]思维链[/dim]",
-                            border_style="dim",
-                            title_align="left",
-                        ))
-                        continue
-                    if is_final:
-                        final_response = response
-                        break
-                    elif delta:
-                        stream_buffer += delta
-                        live.update(Panel(
-                            Markdown(stream_buffer),
-                            title="[bold cyan]小智[/bold cyan]",
-                            border_style="cyan",
-                            title_align="left",
-                        ))
+            for delta, is_final, response in agent.llm.chat_stream(messages, tools=tool_specs):
+                # 思维链增量: 静默累积, 不实时渲染, 最终答案一次性展示
+                if isinstance(response, ReasoningDelta):
+                    thinking_buffer += response.text
+                    continue
+                if is_final:
+                    final_response = response
+                    break
+                elif delta:
+                    stream_buffer += delta
         except Exception as e:
             pet.set_state("error")
             console.print(f"[red]Error: {e}[/red]")
