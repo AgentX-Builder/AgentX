@@ -45,15 +45,47 @@ PET_ART = {
    z Z Z""",
 }
 
+STATE_LABEL = {
+    "idle": "",
+    "thinking": "思考中",
+    "working": "干活中",
+    "streaming": "输出中",
+    "tool_call": "调用工具",
+    "done": "完成",
+    "error": "出错",
+    "waiting": "等待",
+}
+
 class PetMascot:
     def __init__(self, pet_name: str = "小智"):
         self.pet_name = pet_name
         self.state = "idle"
+        self._skin_art = ""
+        self._skin_name = None
 
     def set_state(self, state: str) -> None:
         self.state = state
 
+    def apply_skin(self, art: str, name: str | None = None) -> None:
+        """应用抽卡获得的皮肤(CAT_ARTS)。art 为空时恢复默认形象。"""
+        self._skin_art = art or ""
+        if name:
+            self._skin_name = name
+        elif not art:
+            self._skin_name = None
+
     def render(self) -> Panel:
+        if self._skin_art:
+            label = STATE_LABEL.get(self.state, "")
+            title = f"[bold cyan]{self._skin_name or self.pet_name}[/bold cyan]"
+            if label:
+                title += f"  [dim]({label})[/dim]"
+            return Panel(
+                self._skin_art,
+                title=title,
+                border_style="cyan",
+                padding=(0, 1),
+            )
         art = PET_ART.get(self.state, PET_ART["idle"])
         return Panel(
             art,

@@ -382,6 +382,13 @@ class GachaSystem:
         info = self._data["collection"].get(name, {})
         return {"name": name, "rarity": info.get("rarity", "普通"), "god": bool(info.get("god"))}
 
+    def active_pet_art(self) -> str:
+        """当前活跃皮肤的 ASCII 艺术画, 无则返回空串。"""
+        active = self.active_pet()
+        if not active:
+            return ""
+        return CAT_ARTS.get(active["name"], "")
+
 
 # ── 渲染 ────────────────────────────────────────────────────────────
 

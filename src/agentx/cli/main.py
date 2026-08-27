@@ -99,6 +99,7 @@ def chat(
     work_history = WorkHistory(session.id) if session else None
     memory_store = MemoryStore()
     gacha = GachaSystem()
+    _apply_pet_skin(pet, gacha)
 
     try:
         while True:
@@ -226,6 +227,7 @@ def chat(
                     console.print(f"[red]{err}[/red]")
                     continue
                 render_gacha(console, pet_result, gacha.remaining())
+                _apply_pet_skin(pet, gacha)
                 continue
 
             if cmd == "/collection":
@@ -839,6 +841,13 @@ def _active_pet_label(gacha) -> str:
     style = RARITY_STYLE.get(active["rarity"], "cyan")
     glow = " ✨" if active["god"] else ""
     return f"[bold {style}]{active['name']}[/bold {style}]({active['rarity']}){glow} "
+
+
+def _apply_pet_skin(pet, gacha) -> None:
+    """把抽卡获得的皮肤应用到界面宠物形象。"""
+    active = gacha.active_pet()
+    art = gacha.active_pet_art()
+    pet.apply_skin(art, active["name"] if active else None)
 
 
 def _record_work_history(work_history, tool_name: str, arguments: dict) -> None:
