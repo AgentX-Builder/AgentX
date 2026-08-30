@@ -13,8 +13,10 @@
 ### v0.2.0
 - **Tiered permissions / 权限分级**: read-only commands (`ls` / `cat` / `grep` / `find` / `echo`) now run automatically; only destructive ops (`write_file`, `rm`, `mv`, `>` redirect, etc.) ask for confirmation. 只读命令自动执行，仅写文件、`rm`、`mv`、`>` 重定向等破坏性操作才弹确认。
 - **Custom persona / 自定义人设**: new `/prompt` command edits the system persona in-chat (multi-line, takes effect immediately); `/prompt clear` resets to default. 新增 `/prompt` 命令，聊天内多行编辑系统人设并立即生效，`/prompt clear` 恢复默认。
-- **Auto context compression / 上下文自动压缩**: sessions exceeding `[context] max_tokens` (default 100K) auto-summarize old messages — no more degraded, stuttering answers on long chats. 会话超过 `[context] max_tokens`（默认 100K）自动摘要压缩旧消息，长对话不再退化、断断续续。
-- **Live thinking chain / 思维链实时展示**: any model streaming `reasoning_content` (DeepSeek V4, Ollama DeepSeek R1 / Qwen3) shows its thinking in real time before answering. 所有流式输出 `reasoning_content` 的模型（DeepSeek V4、Ollama 的 DeepSeek R1 / Qwen3 等）都会实时展示思维链，再输出答案干活。
+- **Auto context compression / 上下文自动压缩**: sessions exceeding `[context] max_tokens` (default 32K) auto-summarize old messages — no more degraded, stuttering answers on long chats. 会话超过 `[context] max_tokens`（默认 32K）自动摘要压缩旧消息，长对话不再退化、断断续续。
+- **Live thinking chain / 思维链闪现**: any model streaming `reasoning_content` (DeepSeek V4, Ollama DeepSeek R1 / Qwen3) flashes its thinking in real time, then the full answer prints once in one shot — no more per-token scrolling. 所有流式输出 `reasoning_content` 的模型（DeepSeek V4、Ollama 的 DeepSeek R1 / Qwen3 等）都会实时闪现思考过程，随后完整答案一次性输出，不再逐段滚动。
+- **Gacha pet skins / 抽卡宠物皮肤**: pulled pets can be equipped as your terminal pet's skin, and switched anytime via `/collection`; pulling no longer force-switches your skin. 抽到的宠物可装备为终端宠物的皮肤，随时在 `/collection` 图鉴里切换；抽卡不再强制换肤。
+- **v0.2.0 bug fixes / 修复**: full answer printed once (no flicker); Windows GBK encoding crash fixed (all file I/O forced to UTF-8); default context limit corrected to 32K. 最终答案一次性完整输出（不再闪烁）；修复 Windows GBK 编码崩溃（文件读写强制 UTF-8）；默认上下文上限修正为 32K。
 - Version bumped 0.1.0 → 0.2.0. 版本号 0.1.0 → 0.2.0。
 
 ### v0.1.0
@@ -32,10 +34,11 @@
 | **Task planning 2.0 / 任务规划（2.0）** | Complex tasks are split into subtask lists, executed item by item, then summarized. 复杂任务先拆成子任务清单，逐项执行再汇总报告 |
 | **Tiered permissions / 权限分级** | Read-only commands (list / read / grep / find / echo) run automatically; only destructive ops — writing files, risky shell commands (`rm`, `mv`, `> redirect`, etc.) — ask for confirmation. 只读命令（列出/读取/搜索/查找/echo）自动执行，不再弹确认；只有会修改文件或系统的危险操作（写入文件、`rm`、`mv`、`>` 重定向等）才要求确认 |
 | **Custom persona / 自定义人设** | Set a system persona via `/prompt` (multi-line, takes effect immediately). 通过 `/prompt` 设置系统人设（支持多行，保存即生效） |
-| **Auto context compression / 上下文自动压缩** | When the conversation exceeds 100K tokens, old messages are auto-summarized to keep the model sharp and prevent degraded / stuttering replies. 对话超过 100K token 时自动把旧消息摘要压缩，防止上下文膨胀导致回答退化、断断续续 |
-| **Live thinking chain / 思维链实时展示** | Any model that streams `reasoning_content` (DeepSeek V4, Ollama's DeepSeek R1 / Qwen3) shows its thinking in real time (dim italic) before the answer. 任何流式输出 `reasoning_content` 的模型（DeepSeek V4、Ollama 上的 DeepSeek R1 / Qwen3 等）都会先实时灰字滚动展示思维链，再输出答案干活 |
+| **Auto context compression / 上下文自动压缩** | When the conversation exceeds 32K tokens, old messages are auto-summarized to keep the model sharp and prevent degraded / stuttering replies. 对话超过 32K token 时自动把旧消息摘要压缩，防止上下文膨胀导致回答退化、断断续续 |
+| **Live thinking chain / 思维链闪现** | Any model that streams `reasoning_content` (DeepSeek V4, Ollama's DeepSeek R1 / Qwen3) flashes its thinking in real time, then the full answer is printed once in one shot. 任何流式输出 `reasoning_content` 的模型（DeepSeek V4、Ollama 上的 DeepSeek R1 / Qwen3 等）都会实时闪现思考过程，随后完整答案一次性完整输出 |
 | **Unified result truncation / 工具结果统一截断** | Large outputs are truncated by tool type to avoid overflowing the LLM context. 大输出按工具类型截断首尾，防止塞爆 LLM 上下文 |
 | **Session persistence / 会话持久化** | History auto-saves to `~/.agentx/sessions/`; resume with `--resume`. 历史自动保存到 `~/.agentx/sessions/`，支持 `--resume` 恢复 |
+| **Gacha pet skins / 抽卡宠物皮肤** | Pull pets via `/gacha` (10 free draws/day), equip any owned skin as your terminal pet, switch anytime in `/collection`. 通过 `/gacha` 抽卡领养宠物（每天 10 次免费），抽到的皮肤可装备为终端宠物形象，随时在 `/collection` 图鉴切换 |
 | **Streaming anti-repeat / 流式防复读** | Detects trailing repeated blocks and cleans up model repetition loops. 检测尾部重复段落，自动清理模型复读循环 |
 | **Rich terminal UI / Rich 终端 UI** | Pet status, streaming render, result panel, status bar. 宠物状态、流式渲染、结果面板、状态栏 |
 
@@ -134,6 +137,14 @@ Requires **Python >= 3.10**.
 
 ---
 
+## Compatibility / 兼容性
+
+- **OS**: Windows / macOS / Linux, and Android Termux. 支持 Windows / macOS / Linux 以及安卓 Termux。
+- **Windows**: use **Windows Terminal** (or VS Code terminal / PowerShell 7) for the best experience; legacy `cmd.exe` renders emoji & colors poorly. All file I/O and console output are forced to **UTF-8**, so Chinese, emoji and block characters (e.g. ░ ▓) work correctly on every system — no GBK encoding crashes. Windows 用户建议使用 Windows Terminal（或 VS Code 终端 / PowerShell 7）；老版 cmd.exe 对 emoji 与颜色支持较差。所有文件读写与控制台输出统一 UTF-8，中文、emoji、块字符（如 ░ ▓）在各系统均正常，不再出现 GBK 编码崩溃。
+- **Termux (Android)**: run `pkg install python` first if `pip` is missing. 安卓 Termux 若缺 pip 先执行 `pkg install python`。
+
+---
+
 ## Quick Start / 快速开始
 
 ### Local Ollama / 本地 Ollama
@@ -224,7 +235,7 @@ persona = ""                   # custom system persona, e.g. "你是傲娇猫娘
 confirm_level = "auto"         # auto(仅危险命令确认) / strict(所有 shell 都确认) / off(全自动)
 
 [context]
-max_tokens = 100000            # 超过此 token 数自动压缩旧消息 / auto-compress old messages above this
+max_tokens = 32000            # 超过此 token 数自动压缩旧消息 / auto-compress old messages above this
 
 [ui]
 pet = true                     # pet status animation / 宠物状态动画
@@ -323,11 +334,11 @@ src/agentx/
 ## Stability / 稳定性
 
 - **Auto-retry on empty replies** / 空回复自动重试: when a cloud API returns an empty response (e.g. DeepSeek transient hiccups / timeouts), agentx automatically retries up to 3 times with increasing delays instead of showing a blank screen.
-- **Thinking mode support** / 思考模式支持: for models with `reasoning_content` (DeepSeek V4 thinking mode, Ollama R1/Qwen3 distill series), agentx reads, relays and falls back to the reasoning chain — no more blank replies on second turn. The thinking chain is also streamed live in dim italic so you can watch it "think" before it works.
+- **Thinking mode support** / 思考模式支持: for models with `reasoning_content` (DeepSeek V4 thinking mode, Ollama R1/Qwen3 distill series), agentx reads, relays and falls back to the reasoning chain — no more blank replies on second turn. The thinking chain flashes in real time (local-refresh, no full-screen repaint), then the final answer is printed once in full.
 - **Explicit errors** / 错误显性化: streamed HTTP errors are surfaced instead of being silently swallowed.
-- **Auto context compression** / 上下文自动压缩: once a session exceeds `[context] max_tokens` (default 100K), agentx summarizes the old messages into one compact digest (keeping the most recent ~40% verbatim, with safe tool-call boundaries) so long chats don't degrade into stuttering, repeated answers.
+- **Auto context compression** / 上下文自动压缩: once a session exceeds `[context] max_tokens` (default 32K), agentx summarizes the old messages into one compact digest (keeping the most recent ~40% verbatim, with safe tool-call boundaries) so long chats don't degrade into stuttering, repeated answers.
 
-稳定性特性：云端 API 空回复自动重试（最多 3 次，间隔递增）；DeepSeek V4 等思考模式模型的 `reasoning_content` 全链路读取与回传；流式 HTTP 错误显性报出，不再静默吞掉；会话超过 `[context] max_tokens`（默认 100K）时自动把旧消息压缩为一条摘要（最近约 40% 原样保留，并保证 tool 调用边界安全），长对话不再退化成断断续续的重复回答。
+稳定性特性：云端 API 空回复自动重试（最多 3 次，间隔递增）；DeepSeek V4 等思考模式模型的 `reasoning_content` 全链路读取与回传；流式 HTTP 错误显性报出，不再静默吞掉；思维链实时闪现（局部刷新，不整屏重绘），随后完整答案一次性输出；会话超过 `[context] max_tokens`（默认 32K）时自动把旧消息压缩为一条摘要（最近约 40% 原样保留，并保证 tool 调用边界安全），长对话不再退化成断断续续的重复回答。
 
 ---
 
