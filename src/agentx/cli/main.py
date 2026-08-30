@@ -50,6 +50,14 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 console = Console()
+
+# Windows 中文系统默认 GBK 编码, 强制 stdout/stderr 走 UTF-8,
+# 避免渲染/写入含 emoji、块字符(如 ░)等 Unicode 内容时报 UnicodeEncodeError
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 pet = PetMascot()
 
 
@@ -923,7 +931,7 @@ def _load_session(cfg, session_id):
             console.print(f"[red]Session not found: {session_id}[/red]")
             return None
     try:
-        data = json.loads(path.read_text())
+        data = json.loads(path.read_text(encoding="utf-8"))
         return Session.from_dict(data)
     except Exception as e:
         console.print(f"[red]Failed to load session: {e}[/red]")
@@ -932,7 +940,8 @@ def _load_session(cfg, session_id):
 
 def _save_session(cfg, session):
     path = cfg.sessions_dir / f"{session.id}.json"
-    path.write_text(json.dumps(session.to_dict(), ensure_ascii=False, indent=2))
+    path.write_text(json.dumps(session.to_dict(), ensure_ascii=False, indent=2),
+                    encoding="utf-8")
     try:
         MemoryStore().save(session)
     except Exception:
@@ -1071,7 +1080,7 @@ def _config_set(cfg, key, value):
     if isinstance(node, dict):
         node[parts[-1]] = value
     cfg._path.parent.mkdir(parents=True, exist_ok=True)
-    with open(cfg._path, "w") as f:
+    with open(cfg._path, "w", encoding="utf-8") as f:
         f.write(tomli_w.dumps(cfg._file))
 
 
